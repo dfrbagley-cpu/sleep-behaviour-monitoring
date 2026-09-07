@@ -1,0 +1,64 @@
+# Local source awaiting review, site settings, and data
+/private/
+/source-review/
+/local/
+/config/local.*
+/config/*.local.*
+/data/
+/input/
+/inputs/
+/output/
+/outputs/
+/reports/
+/exports/
+/logs/
+/backups/
+
+# Credentials and local environment
+.env
+.env.*
+!.env.example
+.Renviron
+.Renviron.*
+*.pem
+*.key
+credentials.*
+secrets.*
+
+# R sessions, serialized records, and local package libraries
+.Rhistory
+.RData
+.RDataTmp
+.Ruserdata
+.Rproj.user/
+*.rds
+*.RDS
+*.rda
+*.RData
+renv/library/
+renv/staging/
+renv/cache/
+
+# Raw datasets and generated documents: allow individual synthetic fixtures
+# later only after they have been reviewed and explicitly listed here.
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.parquet
+*.feather
+*.sqlite
+*.sqlite3
+*.db
+*.pdf
+*.docx
+*.html
+*.zip
+
+# Editor and operating-system artifacts
+.DS_Store
+Thumbs.db
+*~
+*.swp
+.vscode/
+.idea/
