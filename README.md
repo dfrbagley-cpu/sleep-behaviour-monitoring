@@ -1,35 +1,94 @@
-# Sleep & Behavioural Monitoring Tool
+# Sleep & Behavioural Monitoring
 
-A project to make sleep and behavioural observation reports easier to configure, maintain, and interpret.
+Turn recorded sleep and behaviour observations into charts, patient summaries,
+unit comparisons and a clearly defined earlier baseline. Reports are generated
+directly: no copying results into a separate Excel chart template.
 
-**Status: repository foundation.** The existing R application has not yet been imported. This repository does not currently contain a runnable application, clinical calculations, or patient data. There is no validated release to install.
+**Status: runnable synthetic prototype; not clinically validated. Licensing is
+pending.** Public visibility does not grant an open-source reuse licence or
+authorize operational deployment. See [licensing status](LICENSING.md).
 
-## Intended use
+## Try the synthetic report
 
-The planned tool brings sleep and behavioural observations together to support patient reviews, discussions with families, and operational planning. It will show patterns over time, comparisons with a selected patient baseline, and the completeness of the underlying observations.
+Install R, download or clone this repository, then run from its folder:
 
-Outputs are intended to support professional interpretation. Observed sleep patterns alone will not be labelled as a diagnosis of over-sedation; time-of-day patterns will not be presented as proof of a behavioural trigger.
+```sh
+Rscript --vanilla run.R --demo
+```
 
-## What this repository contains
+Open the `report.html` path printed when the command finishes. The demo creates
+fully generated observations for six fictional people across two fictional units.
+It needs no patient file, account, database connection or additional R package.
+After setup, report generation runs locally without a network connection.
 
-- [Source migration and validation plan](docs/MIGRATION.md).
-- [Licensing status](LICENSING.md).
-- Git exclusions for local data, credentials, R sessions, and generated reports.
+Each run creates a folder under `outputs/` containing:
 
-## Next development milestone
+- `report.html`: self-contained charts, patient panels, comparisons and tables.
+- `summary-*.csv`: numeric patient, unit, daily, hourly, baseline and quality
+  summaries, plus metric definitions.
+- `run-receipt.dcf`: software/R versions, input/configuration fingerprints and counts.
+- `synthetic-observations.csv`: generated source rows, included only in demo runs.
 
-Bring in the existing R source for review, replace organization-specific settings with configuration, and reproduce its reports using fully generated synthetic observations. The first runnable release should have one documented demo command and one environment configuration file.
+For Excel input and automatic workbook output, install the optional packages once:
 
-The public version and future local deployments should use the same tested calculation functions. Data connections, column mappings, observation codes, report labels, and local paths should be configured outside those functions.
+```sh
+Rscript --vanilla scripts/install_optional.R
+Rscript --vanilla run.R --demo
+```
 
-No production database, hospital network, or account should be required to run the planned synthetic demo. Exact installation commands and dependencies will be documented after the existing source has been inspected and tested.
+With `openxlsx` installed, `monitoring-report.xlsx` adds summary worksheets and
+unit/patient charts. `readxl` enables unencrypted XLSX input. Installation needs
+internet access; normal report generation does not.
 
-## Data boundaries
+## What it shows
 
-Public examples must be generated from scratch. Do not upload patient records, clinical reports, identifiers, credentials, internal documents, or screenshots containing real data to this repository or its issues. Renaming real patients is not the synthetic-data approach used here.
+- Sleep and behaviour proportions by person, admission, time band, day and hour.
+- Unit results using pooled observations and an equally weighted mean of admission
+  summaries, with contributing-admission counts.
+- Changes against a selected earlier baseline from the same person, admission and
+  unit; insufficient observations suppress the change calculation.
+- Numerators, denominators, missing states and conflicting sleep evidence.
 
-Keep original source pending review, local configuration, input data, and generated reports outside the repository. `.gitignore` is an extra guard against accidental staging; it does not inspect files, remove earlier commits, or prevent a forced addition.
+Sleep percentage means **asleep / known sleep-state observations**. Behaviour
+percentage means **awake with behaviour recorded / awake with known behaviour
+status**. Blank behaviour is unknown, not a recorded absence. Recorded-field
+completeness describes rows received; it does not measure missed scheduled checks.
 
-## Licensing
+These are descriptive point-observation summaries. They do not establish measured
+sleep duration, a medication effect, a behavioural cause, over-sedation or a staffing
+requirement. Statistical significance testing and prediction are not implemented.
 
-Licensing terms have not yet been selected. Public visibility does not mean this project has an open-source licence. See [LICENSING.md](LICENSING.md) before planning reuse or deployment.
+## Adapt the same core locally
+
+Keep calculation code shared. Copy `config/site.example.dcf` outside the repository
+and edit the column mappings, codes, dates, time zone and time bands. Keep local
+input and output outside the repository too.
+
+```sh
+Rscript --vanilla run.R --config "/local/site.dcf" --input "/local/observations.csv" --output "/local/reports/run-001"
+```
+
+Use your actual paths and an empty output directory. Input needs stable observation,
+patient and admission identifiers, unit, timestamp, sleep state and behaviour status.
+Timestamps require seconds and an explicit UTC offset or `Z`; separate date/time
+columns and native Excel dates are not automatically inferred. Read the
+[configuration guide](docs/CONFIGURATION.md) before adapting an export.
+
+## Development and remaining work
+
+Run the synthetic regression checks with:
+
+```sh
+Rscript --vanilla tests/run_tests.R
+```
+
+The [source review](docs/SOURCE_REVIEW.md) records legacy defects and intentional
+numerical changes. The [migration plan](docs/MIGRATION.md) identifies remaining
+verification. The former Excel visualization template was not supplied: exact
+chart/formula parity is unverified. Explicit-interval duration, expected-check
+schedules and production deployment controls remain future work.
+
+Do not upload patient records, local reports, credentials or internal configuration
+to this repository or its issues. Local reports contain supplied identifiers and
+are not encrypted by this tool. Local runs do not export raw input rows; aggregate
+reports still require an appropriate destination and access controls.
