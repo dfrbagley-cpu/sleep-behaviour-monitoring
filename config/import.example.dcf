@@ -1,4 +1,4 @@
-Title: Sleep & Behavioural Monitoring
+Title: Sleep & Behavioural Monitoring | Local report
 Timezone: America/Toronto
 StartDate: 2026-07-29
 EndDate: 2026-08-25
@@ -10,11 +10,20 @@ ObservationIdColumn: observation_id
 PatientIdColumn: patient_id
 EpisodeIdColumn: episode_id
 UnitColumn: unit
+TimestampMode: iso
 TimestampColumn: observed_at
+DateColumn:
+TimeColumn:
+DateFormat:
+TimeFormat:
+UTCOffsetColumn:
+UTCOffset:
 SleepStateColumn: sleep_state
 BehaviourColumn: behaviour
 AwakeCalmColumn: awake_calm
 SleepingColumn: sleeping
+BehaviourTypes:
+ExtraColumns:
 AwakeCodes: Awake
 AsleepCodes: Asleep
 BehaviourYesCodes: YES
@@ -24,11 +33,5 @@ SleepingCodes: Sleeping
 EstimateHours: false
 MinBaselineObservations: 10
 MinCompletenessPct: 80
-BehaviourTypes: Verbal responses=verbal_responses|Physical responses=physical_responses|Repetitive vocalizations=repetitive_vocalizations|Restlessness=restlessness|Repeated requests=repeated_requests|Intrusiveness=intrusiveness|Sexual behaviours=sexual_behaviours|Exit seeking=exit_seeking|Resistance to care=resistance_to_care
 MinPeerPatients: 3
-DashboardPatient: Demo participant 02
 StatisticsEnabled: false
-MinStatDays: 28
-MinStatKnownPerDay: 6
-HACLag: 7
-Alpha: 0.05

@@ -299,63 +299,6 @@ sbm_report_png <- function(df, dimension, title, path) {
   invisible(path)
 }
 
-sbm_report_workbook <- function(tables, charts, config, output_dir) {
-  if (!requireNamespace("openxlsx", quietly = TRUE)) return(NULL)
-  wb <- openxlsx::createWorkbook(creator = "Sleep & Behaviour Monitoring")
-  sheets <- c(patient = "Patients", unit = "Units", daily = "Daily", hourly = "Hourly",
-              baseline = "Baseline", quality = "Quality", issues = "Issues", definitions = "Definitions")
-  openxlsx::addWorksheet(wb, "Overview")
-  overview <- data.frame(
-    item = c("Title", "Dataset", "Report starts", "Report ends", "Time zone", "Reporting day starts",
-             "Baseline starts", "Baseline ends", "Reading this workbook", "Important limitation"),
-    value = c(config$title, if (isTRUE(config$synthetic)) "Synthetic demonstration" else "Local observations",
-              as.character(config$start_date), as.character(config$end_date), config$timezone,
-              sbm_report_clock(config$reporting_day_start), as.character(config$baseline_start),
-              as.character(config$baseline_end),
-              "Charts are generated automatically on Unit charts and Patient charts. Source summaries are on the named data sheets.",
-              "Descriptive recorded checks, not measured sleep duration or a clinical diagnosis. See Definitions."),
-    stringsAsFactors = FALSE)
-  openxlsx::writeData(wb, "Overview", sbm_report_csv_safe(overview))
-  for (nm in names(sheets)) {
-    openxlsx::addWorksheet(wb, sheets[[nm]])
-    df <- sbm_report_csv_safe(tables[[nm]])
-    if (ncol(df) && nrow(df)) openxlsx::writeDataTable(wb, sheets[[nm]], df, tableStyle = "TableStyleMedium2", keepNA = FALSE)
-    else if (ncol(df)) openxlsx::writeData(wb, sheets[[nm]], df)
-    else openxlsx::writeData(wb, sheets[[nm]], "No rows available.")
-    openxlsx::freezePane(wb, sheets[[nm]], firstRow = TRUE)
-    if (ncol(df)) openxlsx::setColWidths(wb, sheets[[nm]], cols = seq_len(ncol(df)), widths = if (nm == "definitions") c(30, 110) else 21)
-  }
-  chart_dir <- tempfile("monitoring-charts-")
-  dir.create(chart_dir)
-  on.exit(unlink(chart_dir, recursive = TRUE), add = TRUE)
-  for (scope in c("unit", "patient")) {
-    sheet <- if (scope == "unit") "Unit charts" else "Patient charts"
-    openxlsx::addWorksheet(wb, sheet, gridLines = FALSE)
-    openxlsx::setColWidths(wb, sheet, cols = 1:20, widths = 11)
-    selection <- charts[vapply(charts, function(chart) chart$scope == scope, logical(1L))]
-    if (!length(selection)) openxlsx::writeData(wb, sheet, "No observations in this selection.")
-    for (i in seq_along(selection)) {
-      chart <- selection[[i]]
-      start <- 1L + (i - 1L) * 31L
-      label <- sbm_report_csv_safe(data.frame(label = chart$title, stringsAsFactors = FALSE))$label
-      openxlsx::writeData(wb, sheet, label, startRow = start, colNames = FALSE)
-      file <- file.path(chart_dir, paste0(scope, "-", i, ".png"))
-      sbm_report_png(chart$data, chart$dimension, chart$title, file)
-      openxlsx::insertImage(wb, sheet, file, startRow = start + 2L, startCol = 1L,
-                            width = 10.4, height = 4.77, units = "in")
-    }
-  }
-  style <- openxlsx::createStyle(fontColour = "#163641", textDecoration = "bold", fgFill = "#edf4f2")
-  openxlsx::addStyle(wb, "Overview", style, rows = 1L, cols = 1:2, gridExpand = TRUE)
-  openxlsx::setColWidths(wb, "Overview", cols = 1:2, widths = c(28, 105))
-  openxlsx::addStyle(wb, "Definitions", openxlsx::createStyle(wrapText = TRUE, valign = "top"),
-                     rows = seq_len(nrow(tables$definitions)) + 1L, cols = 1:2, gridExpand = TRUE, stack = TRUE)
-  openxlsx::setRowHeights(wb, "Definitions", rows = seq_len(nrow(tables$definitions)) + 1L, heights = 48)
-  path <- file.path(output_dir, "monitoring-report.xlsx")
-  openxlsx::saveWorkbook(wb, path, overwrite = TRUE)
-  path
-}
-
 write_monitoring_report <- function(results, config, output_dir) {
   required <- c("patient", "unit", "daily", "hourly", "baseline", "quality")
   if (!is.list(results) || !all(required %in% names(results))) stop("Report requires the complete monitoring summary result.")
@@ -370,10 +313,22 @@ write_monitoring_report <- function(results, config, output_dir) {
   if (!dir.exists(output_dir) && !dir.create(output_dir, recursive = TRUE)) stop("Cannot create the report output directory.")
   esc <- sbm_report_escape
   tables <- results[required]
+  for (name in c("behaviour", "behaviour_daily", "statistics", "peer_comparisons")) {
+    if (is.data.frame(results[[name]])) tables[[name]] <- results[[name]]
+  }
   tables$issues <- if (is.data.frame(results$issues) && all(c("row", "code", "message") %in% names(results$issues))) {
     results$issues[c("row", "code", "message")]
   } else data.frame(row = integer(), code = character(), message = character(), stringsAsFactors = FALSE)
   tables$definitions <- sbm_report_definitions(config)
+  tables$definitions <- rbind(tables$definitions, data.frame(
+    term = c("Individual behaviour types", "Own-history daily comparison", "Ward peer comparison", "Statistical testing", "Raw data workbook"),
+    definition = c(
+      "Separate explicit yes/no fields use confirmed-awake denominators. Types may co-occur; their percentages should not be added. Missing flags remain unknown. The aggregate behaviour field is not inferred from individual flags.",
+      "Daily percentages have equal weight, unlike period percentages weighted by known checks. Report minus baseline daily mean is descriptive; observed days and quality are shown. The same person, admission and unit are matched.",
+      "Same-unit current-period eligible admission percentages, excluding every admission of the index person. Patient selection does not narrow the peer reference. Minimum distinct-peer and recorded-quality rules apply. Comparisons are descriptive and not adjusted for patient needs or case mix.",
+      "Experimental inference is disabled by default after null simulations exposed excess false-positive rates. No statistical significance claim is available by default. An opt-in Newey-West/Holm calculation requires local suitability review; its normal-reference p-values and intervals can be miscalibrated. See docs/STATISTICS.md in the source repository.",
+      "The Raw data worksheet contains selected source rows from the report and baseline periods, plus separate derived fields. Ward references can include additional people whose raw rows are outside that selection. Raw rows are not embedded in HTML or summary CSVs. Excel filters change the visible rows, not the calculated charts: regenerate the report after edits."
+    ), stringsAsFactors = FALSE))
   csv_paths <- stats::setNames(character(length(tables)), names(tables))
   for (nm in names(tables)) {
     csv_paths[[nm]] <- file.path(output_dir, paste0("summary-", nm, ".csv"))
@@ -444,8 +399,23 @@ write_monitoring_report <- function(results, config, output_dir) {
       sbm_report_baseline(sbm_report_subset(results$baseline, key)), '<div class="chart-grid">',
       add_chart("patient", sbm_report_subset(results$daily, key), "report_date", paste0(title, " · daily pattern")),
       add_chart("patient", sbm_report_subset(results$hourly, key), "hour", paste0(title, " · time-of-day pattern")),
-      '</div><h4>Time-band summary</h4>', sbm_report_table(rows, band_columns, band_labels),
-      '</div></details>')
+      '</div><h4>Time-band summary</h4>', sbm_report_table(rows, band_columns, band_labels))
+    if (is.data.frame(results$statistics)) sections <- c(sections,
+      '<h4>Data science: own-history daily comparison</h4><p class="note">Each day has equal weight. Experimental inference is disabled by default because its false-positive calibration is unresolved. An unavailable interval or p-value is not evidence of no change. See the status for each measure.</p>',
+      sbm_report_table(sbm_report_subset(results$statistics, key),
+        c("metric", "baseline_mean_pct", "report_mean_pct", "effect_pp", "n_baseline_days", "n_report_days", "ci_low_pp", "ci_high_pp", "p_adjusted", "status"),
+        c("Measure", "Baseline daily mean (%)", "Report daily mean (%)", "Change (pp)", "Baseline days", "Report days", "Experimental interval lower (pp)", "Experimental interval upper (pp)", "Experimental Holm p", "Test status"), numeric_digits = 3L))
+    if (is.data.frame(results$behaviour)) sections <- c(sections,
+      '<h4>Each recorded behaviour</h4>',
+      sbm_report_table(sbm_report_total(sbm_report_subset(results$behaviour, key)),
+        c("metric", "n_yes", "n_known", "n_eligible", "rate_pct", "completeness_pct"),
+        c("Behaviour", "Yes checks", "Known checks", "Awake checks", "Rate (%)", "Field complete (%)")))
+    if (is.data.frame(results$peer_comparisons)) sections <- c(sections,
+      '<h4>Ward peers: descriptive comparison</h4><p class="muted">The reference excludes this person across all admissions and gives each eligible peer admission equal weight. Patient needs and recording practices can affect differences.</p>',
+      sbm_report_table(sbm_report_subset(results$peer_comparisons, key),
+        c("metric", "report_rate_pct", "peer_mean_pct", "difference_pp", "peer_median_pct", "percentile_midrank", "n_peer_patients", "n_peer_admissions", "status"),
+        c("Measure", "Person (%)", "Peer mean (%)", "Difference (pp)", "Peer median (%)", "Peer percentile", "Peer people", "Peer stays", "Status")))
+    sections <- c(sections, '</div></details>')
   }
   if (!nrow(patient_keys)) sections <- c(sections, '<p class="empty">No patient summaries in the report period.</p>')
   quality_view <- results$quality
@@ -474,7 +444,7 @@ write_monitoring_report <- function(results, config, output_dir) {
            sbm_report_table(issue_counts, c("code", "n_issues"), c("Issue code", "Issues")),
            sbm_report_table(utils::head(tables$issues, 200L), c("row", "code", "message"),
                             c("Source row", "Issue code", "Explanation"), numeric_digits = 0L),
-           if (nrow(tables$issues) > 200L) '<p class="muted">The first 200 issues are shown here. The Issues worksheet and summary-issues.csv contain the complete diagnostics.</p>' else '')
+           if (nrow(tables$issues) > 200L) '<p class="muted">The first 200 issues are shown here. The Documentation worksheet and summary-issues.csv contain the complete diagnostics.</p>' else '')
   } else '<p class="muted">No row-level validation issues were supplied with these summaries.</p>'
   sections <- c(sections, '</section><section id="definitions"><p class="eyebrow">READING THIS REPORT</p><h2>Definitions &amp; data quality</h2>',
                 '<details class="panel"><summary>Calculation definitions and interpretation</summary>',
@@ -482,7 +452,7 @@ write_monitoring_report <- function(results, config, output_dir) {
                 '<details class="panel"><summary>Data quality summary</summary>',
                 sbm_report_table(quality_view, c("metric", "value"), c("Measure", "Value")), '</details>',
                 '<details class="panel"><summary>Source validation issues</summary>', issue_html, '</details>',
-                '<p class="muted">The summary CSV files preserve numeric results for further analysis. If Excel export is installed, the workbook contains the same summaries and automatically generated charts. Raw observations are not exported by this report.</p></section>',
+                '<p class="muted">The summary CSV files preserve numeric results for further analysis. If Excel export is installed, the workbook contains the same summaries and automatically generated charts. The four-sheet workbook includes selected report and baseline source records on Raw data.</p></section>',
                 paste0('<footer>Generated ', esc(format(Sys.time(), "%Y-%m-%d %H:%M %Z")), ' · Version ', esc(config$version),
                        '. Descriptive observational support; interpretation requires clinical context.</footer></main>'))
   css <- "
@@ -497,6 +467,6 @@ write_monitoring_report <- function(results, config, output_dir) {
                  paste(sections, collapse = "\n"), '</body></html>')
   html_path <- file.path(output_dir, "report.html")
   writeLines(enc2utf8(html), html_path, useBytes = TRUE)
-  workbook_path <- sbm_report_workbook(tables, charts, config, output_dir)
+  workbook_path <- write_dashboard_workbook(results, config, output_dir)
   invisible(list(html = html_path, csv = csv_paths, workbook = workbook_path))
 }

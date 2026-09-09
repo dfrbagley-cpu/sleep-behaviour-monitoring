@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
       - uses: r-lib/actions/setup-r@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
         with:
-          r-version: '4.3.3'
+          r-version: 'release'
           use-public-rspm: true
       - name: Check core and HTML without optional packages
         run: Rscript --vanilla tests/run_tests.R
@@ -35,22 +35,69 @@ jobs:
         run: Rscript --vanilla scripts/install_optional.R
       - name: Check calculations and workbook output
         run: Rscript --vanilla tests/run_tests.R
+      - name: Verify explicit hospital export adapter
+        run: Rscript --vanilla tests/test_import.R
+      - name: Verify hospital and development parity
+        run: Rscript --vanilla tests/test_editions.R
+      - name: Verify research joins and chronological forecast evaluation
+        run: Rscript --vanilla tests/test_advanced.R
+      - name: Generate the advanced synthetic report
+        run: Rscript --vanilla advanced/run.R --demo --output outputs/ci-advanced
+      - name: Build both distribution profiles
+        run: python scripts/build_editions.py
+      - name: Verify release artifact preparation
+        run: python tests/test_release.py
       - name: Generate the complete synthetic report
         run: Rscript --vanilla run.R --demo --output outputs/ci-demo
-      - name: Check Excel charts and summary sheets
+      - name: Check four-page Excel report and selected source rows
         shell: Rscript {0}
         run: |
           file <- "outputs/ci-demo/monitoring-report.xlsx"
           stopifnot(file.exists(file))
           sheets <- openxlsx::getSheetNames(file)
-          stopifnot(all(c("Overview", "Patient charts", "Unit charts", "Definitions", "Patients") %in% sheets))
+          stopifnot(identical(sheets, c("Dashboard", "Expanded analytics", "Raw data", "Documentation")))
+          workbook <- openxlsx::loadWorkbook(file)
+          stopifnot(all(openxlsx::sheetVisibility(workbook) == "visible"))
           zip <- unzip(file, list = TRUE)
-          stopifnot(sum(grepl("^xl/media/.*[.]png$", zip$Name)) == 16L)
-          data <- openxlsx::read.xlsx(file, sheet = "Patients")
-          stopifnot(sum(data$band == "Total") == 6L)
+          stopifnot(sum(grepl("^xl/media/.*[.]png$", zip$Name)) >= 2L)
+          data <- openxlsx::read.xlsx(file, sheet = "Raw data", startRow = 6L)
+          source <- read.csv("outputs/ci-demo/synthetic-observations.csv", colClasses = "character")
+          stopifnot(nrow(data) == nrow(source), nrow(data) == 10752L)
+          stopifnot(length(unique(data$patient_id)) == 8L)
+          stopifnot(setequal(data$analysis_period, c("Report", "Baseline")))
+          directory <- tempfile("workbook-xml-")
+          dir.create(directory)
+          unzip(file, exdir = directory)
+          for (sheet in list.files(file.path(directory, "xl", "worksheets"), pattern = "^sheet[0-9]+[.]xml$", full.names = TRUE)) {
+            xml <- paste(readLines(sheet, warn = FALSE), collapse = "")
+            stopifnot(length(regmatches(xml, gregexpr("<worksheet(?:[[:space:]>])", xml, perl = TRUE))[[1L]]) == 1L)
+            stopifnot(length(regmatches(xml, gregexpr("</worksheet>", xml, fixed = TRUE))[[1L]]) == 1L)
+          }
+          unlink(directory, recursive = TRUE)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: synthetic-report-${{ matrix.os }}
-          path: outputs/ci-demo/
+          path: |
+            outputs/ci-demo/
+            outputs/ci-advanced/
+            dist/
           retention-days: 14
           if-no-files-found: error
+
+  release:
+    name: Publish checked editions
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'dfrbagley-cpu/sleep-behaviour-monitoring'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Publish a new version without replacing existing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/publish_release.py
