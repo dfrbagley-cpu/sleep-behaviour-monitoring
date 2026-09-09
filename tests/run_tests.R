@@ -1,13 +1,12 @@
 #!/usr/bin/env Rscript
-# Tiny, hand-calculated fixtures only. No external packages or real patient data.
+# Hand-calculated synthetic fixtures. Optional Excel checks use openxlsx when installed.
 args <- commandArgs(trailingOnly = FALSE)
 script_arg <- args[startsWith(args, "--file=")]
 repo_root <- if (length(script_arg)) {
   dirname(dirname(normalizePath(sub("^--file=", "", script_arg[[1]]))))
 } else normalizePath(".")
-source(file.path(repo_root, "R", "analytics.R"))
-source(file.path(repo_root, "R", "config.R"))
-source(file.path(repo_root, "R", "report.R"))
+for (module in c("config.R", "analytics.R", "extended.R", "statistics.R", "raw_data.R", "report.R", "workbook.R"))
+  source(file.path(repo_root, "R", module))
 
 results <- list()
 test <- function(name, expr) {
@@ -51,7 +50,9 @@ test_config <- function(...) {
     baseline_start = as.Date("2026-08-01"), baseline_end = as.Date("2026-08-01"),
     units = character(), patients = character(),
     min_completeness_pct = 80, min_baseline_observations = 1,
-    estimate_hours = FALSE
+    estimate_hours = FALSE, behaviour_columns = character(), min_peer_patients = 3L,
+    statistics_enabled = FALSE, min_stat_days = 28L, min_stat_known_per_day = 6L,
+    hac_lag = 7L, alpha = 0.05
   )
   for (key in names(list(...))) config[[key]] <- list(...)[[key]]
   config
@@ -72,6 +73,17 @@ analyze <- function(data, config = test_config()) {
   normalized <- normalize_observations(data, config)
   list(normalized = normalized,
        summary = summarize_observations(normalized$data, config))
+}
+report_results <- function(data, config = test_config()) {
+  analyzed <- analyze(data, config)
+  result <- analyzed$summary
+  extended <- extend_monitoring_analysis(data, analyzed$normalized, config)
+  for (name in c("behaviour", "behaviour_daily", "metric_daily", "peer_comparisons"))
+    result[[name]] <- extended[[name]]
+  result$statistics <- compute_monitoring_statistics(extended$metric_daily, config)
+  result$issues <- rbind(analyzed$normalized$issues, extended$issues)
+  result$raw_data <- prepare_monitoring_raw_data(data, analyzed$normalized$data, config)
+  result
 }
 row_for <- function(table, band = "Total", patient = NULL, unit = NULL,
                     aggregation = "pooled_observations") {
@@ -389,7 +401,7 @@ with_config_file <- function(changes, callback) {
   for (key in names(changes)) values[key] <- changes[key]
   path <- tempfile(fileext = ".dcf")
   on.exit(unlink(path), add = TRUE)
-  write.dcf(as.data.frame(values, stringsAsFactors = FALSE), path)
+  write.dcf(as.data.frame(values, stringsAsFactors = FALSE), path, width = 100000L)
   callback(path)
 }
 
@@ -462,7 +474,7 @@ test("Generated report escapes source labels and exports safe summaries automati
     title <- '<script>alert("synthetic")</script>'
     data <- fixture(c("awake", "asleep"), patient = rep("=1+1", 2), unit = rep(unit, 2))
     config <- test_config(title = title)
-    result <- write_monitoring_report(analyze(data, config)$summary, config, output_dir)
+    result <- write_monitoring_report(report_results(data, config), config, output_dir)
     expect_true(file.exists(result$html))
     expect_true(all(file.exists(result$csv)))
     html <- paste(readLines(result$html, warn = FALSE), collapse = "\n")
@@ -478,6 +490,9 @@ test("Generated report escapes source labels and exports safe summaries automati
     expect_true(!"observation_id" %in% names(exported))
   })
 })
+
+for (file in c("test_extended.R", "test_statistics.R", "test_raw_config.R"))
+  source(file.path(repo_root, "tests", file))
 
 failures <- Filter(function(result) !is.null(result$error), results)
 cat("\n", length(results) - length(failures), "/", length(results), " tests passed\n", sep = "")

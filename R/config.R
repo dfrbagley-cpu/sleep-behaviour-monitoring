@@ -1,5 +1,5 @@
 # Plain-text configuration, with no executable settings or embedded credentials.
-monitoring_version <- "0.1.0"
+monitoring_version <- "0.4.0"
 
 read_monitoring_config <- function(path) {
   if (!file.exists(path)) stop("Configuration file does not exist.", call. = FALSE)
@@ -12,7 +12,9 @@ read_monitoring_config <- function(path) {
   optional <- c("BaselineStart", "BaselineEnd", "ReportingDayStart", "Units", "Patients",
                 "AwakeCalmColumn", "SleepingColumn", "AwakeCodes", "AsleepCodes",
                 "BehaviourYesCodes", "BehaviourNoCodes", "AwakeCalmCodes", "SleepingCodes",
-                "EstimateHours", "MinBaselineObservations", "MinCompletenessPct")
+                "EstimateHours", "MinBaselineObservations", "MinCompletenessPct",
+                "BehaviourTypes", "MinPeerPatients", "DashboardPatient", "DashboardEpisode", "DashboardUnit",
+                "StatisticsEnabled", "MinStatDays", "MinStatKnownPerDay", "HACLag", "Alpha")
   if (any(!names(values) %in% c(required, optional))) stop("Unknown configuration field; check the example file.", call. = FALSE)
   if (any(!required %in% names(values))) stop("Missing required configuration fields: ", paste(setdiff(required, names(values)), collapse = ", "), call. = FALSE)
   val <- function(key, default = "") if (is.null(values[[key]]) || is.na(values[[key]])) default else trimws(values[[key]])
@@ -57,12 +59,36 @@ read_monitoring_config <- function(path) {
   }
   estimate <- tolower(val("EstimateHours", "false"))
   if (!estimate %in% c("true", "false")) stop("EstimateHours must be true or false.", call. = FALSE)
+  statistics <- tolower(val("StatisticsEnabled", "false"))
+  if (!statistics %in% c("true", "false")) stop("StatisticsEnabled must be true or false.", call. = FALSE)
+  alpha <- suppressWarnings(as.numeric(val("Alpha", "0.05")))
+  if (length(alpha) != 1L || !is.finite(alpha) || alpha <= 0 || alpha >= 1) stop("Alpha must be between zero and one.", call. = FALSE)
+  behaviour_columns <- character()
+  if (nzchar(val("BehaviourTypes"))) {
+    entries <- strsplit(val("BehaviourTypes"), "|", fixed = TRUE)[[1]]
+    mapping <- lapply(entries, function(entry) {
+      pair <- trimws(strsplit(entry, "=", fixed = TRUE)[[1]])
+      if (length(pair) != 2L || any(!nzchar(pair))) stop("BehaviourTypes requires Label=column entries separated by |.", call. = FALSE)
+      pair
+    })
+    behaviour_columns <- stats::setNames(vapply(mapping, `[`, character(1L), 2L), vapply(mapping, `[`, character(1L), 1L))
+    if (anyDuplicated(tolower(names(behaviour_columns))) || anyDuplicated(behaviour_columns) ||
+        any(tolower(names(behaviour_columns)) %in% c("sleep", "any recorded behaviour")))
+      stop("BehaviourTypes labels and columns must be unique; Sleep and Any recorded behaviour are reserved.", call. = FALSE)
+  }
   config <- list(
     version = monitoring_version, title = val("Title"), timezone = val("Timezone"), synthetic = FALSE,
     start_date = date("StartDate"), end_date = date("EndDate"),
     baseline_start = date("BaselineStart", TRUE), baseline_end = date("BaselineEnd", TRUE),
     reporting_day_start = clock(val("ReportingDayStart", "00:00")), bands = bands,
     units = tokens("Units"), patients = tokens("Patients"), estimate_hours = estimate == "true",
+    behaviour_columns = behaviour_columns,
+    min_peer_patients = integer_setting("MinPeerPatients", 3L, 2L, 1000000L),
+    dashboard_patient = val("DashboardPatient"), dashboard_episode = val("DashboardEpisode"), dashboard_unit = val("DashboardUnit"),
+    statistics_enabled = statistics == "true",
+    min_stat_days = integer_setting("MinStatDays", 28L, 28L, 10000L),
+    min_stat_known_per_day = integer_setting("MinStatKnownPerDay", 6L, 1L, 1000000L),
+    hac_lag = integer_setting("HACLag", 7L, 0L, 365L), alpha = alpha,
     min_baseline_observations = integer_setting("MinBaselineObservations", 10L, 1L, 1000000L),
     min_completeness_pct = integer_setting("MinCompletenessPct", 80L, 0L, 100L),
     columns = c(observation_id = val("ObservationIdColumn"), patient_id = val("PatientIdColumn"),
@@ -76,6 +102,7 @@ read_monitoring_config <- function(path) {
   if (config$start_date > config$end_date) stop("StartDate must not follow EndDate.", call. = FALSE)
   if (xor(is.na(config$baseline_start), is.na(config$baseline_end))) stop("Provide both baseline dates or neither.", call. = FALSE)
   if (!is.na(config$baseline_start) && (config$baseline_start > config$baseline_end || config$baseline_end >= config$start_date)) stop("Baseline must be an earlier, nonoverlapping period.", call. = FALSE)
+  if (length(intersect(unname(behaviour_columns), config$columns[nzchar(config$columns)]))) stop("BehaviourTypes source columns must be distinct from the core mapped columns.", call. = FALSE)
   required_cols <- config$columns[seq_len(7)]
   if (any(!nzchar(required_cols)) || anyDuplicated(config$columns[nzchar(config$columns)])) stop("Mapped columns must be nonempty and distinct.", call. = FALSE)
   for (pair in list(c("awake", "asleep"), c("behaviour_yes", "behaviour_no"))) {
@@ -88,10 +115,10 @@ read_monitoring_config <- function(path) {
 read_monitoring_input <- function(path) {
   if (!file.exists(path)) stop("Input file does not exist.", call. = FALSE)
   extension <- tolower(tools::file_ext(path))
-  if (extension == "csv") return(read.csv(path, colClasses = "character", check.names = FALSE, na.strings = c(""), strip.white = TRUE))
+  if (extension == "csv") return(read.csv(path, colClasses = "character", check.names = FALSE, na.strings = c(""), strip.white = FALSE))
   if (extension == "xlsx") {
-    if (!requireNamespace("readxl", quietly = TRUE)) stop("XLSX input requires readxl. Run Rscript --vanilla scripts/install_optional.R once.", call. = FALSE)
-    return(as.data.frame(readxl::read_excel(path, col_types = "text", .name_repair = "minimal"), stringsAsFactors = FALSE))
+    if (!requireNamespace("readxl", quietly = TRUE)) stop("XLSX input requires readxl. Ask IT to preinstall the approved package; check_setup.R lists requirements.", call. = FALSE)
+    return(as.data.frame(readxl::read_excel(path, col_types = "text", .name_repair = "minimal", trim_ws = FALSE), stringsAsFactors = FALSE))
   }
   stop("Input must be CSV or an unencrypted XLSX file. Convert encrypted exports locally using your approved workflow.", call. = FALSE)
 }

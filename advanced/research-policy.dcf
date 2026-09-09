@@ -1,0 +1,6 @@
+HoldoutDays: 14
+TrailingCalendarDays: 7
+MinHistoryDays: 3
+MinKnownPerDay: 6
+MinCompletenessPct: 80
+MinGroupPatients: 5

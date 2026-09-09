@@ -5,3 +5,8 @@
 *.json text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+*.dcf text eol=lf
+*.py text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.png binary

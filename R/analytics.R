@@ -185,13 +185,15 @@ normalize_observations <- function(data, config) {
   if (window$baseline_enabled) baseline <- report_date >= window$baseline_start & report_date <= window$baseline_end
   selection <- rep(TRUE, nrow(data))
   if (length(config$units)) selection <- selection & ids$unit %in% config$units
+  reference_data <- canonical[(current | baseline) & selection, , drop = FALSE]
   if (length(config$patients)) selection <- selection & ids$patient_id %in% config$patients
   if (!any(current & selection)) stop("No observations match the report dates, units, and patients.", call. = FALSE)
   canonical <- canonical[(current | baseline) & selection, , drop = FALSE]
   issues <- issues[issues$row %in% canonical$source_row, , drop = FALSE]
   issues <- issues[order(issues$row, issues$code), , drop = FALSE]
   rownames(canonical) <- rownames(issues) <- NULL
-  list(data = canonical, issues = issues)
+  rownames(reference_data) <- NULL
+  list(data = canonical, reference_data = reference_data, issues = issues)
 }
 
 sbm_percent <- function(numerator, denominator) {
