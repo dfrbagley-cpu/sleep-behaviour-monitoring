@@ -118,7 +118,7 @@ read_monitoring_input <- function(path) {
   if (extension == "csv") return(read.csv(path, colClasses = "character", check.names = FALSE, na.strings = c(""), strip.white = FALSE))
   if (extension == "xlsx") {
     if (!requireNamespace("readxl", quietly = TRUE)) stop("XLSX input requires readxl. Ask IT to preinstall the approved package; check_setup.R lists requirements.", call. = FALSE)
-    return(as.data.frame(readxl::read_excel(path, col_types = "text", .name_repair = "minimal"), stringsAsFactors = FALSE))
+    return(as.data.frame(readxl::read_excel(path, col_types = "text", .name_repair = "minimal", trim_ws = FALSE), stringsAsFactors = FALSE))
   }
   stop("Input must be CSV or an unencrypted XLSX file. Convert encrypted exports locally using your approved workflow.", call. = FALSE)
 }

@@ -245,6 +245,17 @@ if (requireNamespace("openxlsx", quietly = TRUE) && requireNamespace("readxl", q
       result <- prepare_monitoring_import(path, input_path, file.path(directory, "prepared"))
       input <- read_monitoring_input(result$input)
       stopifnot(identical(input$observation_id, c("000001", "000002")), identical(input$patient_id, c("0007", "0007")))
+      for (column in c("Person key", "Recorded at")) {
+        padded <- import_fixture()
+        padded[[column]][1L] <- paste0(" ", padded[[column]][1L], " ")
+        padded_path <- file.path(directory, if (column == "Person key") "padded-id.xlsx" else "padded-timestamp.xlsx")
+        openxlsx::write.xlsx(padded, padded_path)
+        reread <- read_monitoring_input(padded_path)
+        stopifnot(identical(reread[[column]][1L], padded[[column]][1L]))
+        output <- file.path(directory, if (column == "Person key") "rejected-id" else "rejected-timestamp")
+        reject(prepare_monitoring_import(path, padded_path, output), "whitespace")
+        stopifnot(!dir.exists(output))
+      }
     })
   })
 } else cat("SKIP - XLSX import integration requires readxl and openxlsx.\n")
